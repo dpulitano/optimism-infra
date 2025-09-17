@@ -900,6 +900,15 @@ func responseIsNotBatched(b []byte) bool {
 	return json.Unmarshal(b, &r) == nil
 }
 
+func responseContainsRPCErrors(responses []*RPCRes) bool {
+	for _, res := range responses {
+		if res.IsError() {
+			return true
+		}
+	}
+	return false
+}
+
 // sortBatchRPCResponse sorts the RPCRes slice according to the position of its corresponding ID in the RPCReq slice
 func sortBatchRPCResponse(req []*RPCReq, res []*RPCRes) {
 	pos := make(map[string]int, len(req))
@@ -1666,6 +1675,19 @@ func (bg *BackendGroup) ForwardRequestToBackendGroup(
 					"req_id", GetReqID(ctx),
 					"auth", GetAuthCtx(ctx),
 					"err", err,
+				)
+				continue
+			}
+
+			// Check if the response contains RPC errors that should trigger fallback
+			if responseContainsRPCErrors(res) {
+				// Record the RPC errors for health tracking before trying next backend
+				MaybeRecordErrorsInRPCRes(ctx, back.Name, rpcReqs, res)
+				log.Warn(
+					"backend responded with RPC errors, trying next backend",
+					"name", back.Name,
+					"auth", GetAuthCtx(ctx),
+					"req_id", GetReqID(ctx),
 				)
 				continue
 			}
